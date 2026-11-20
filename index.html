@@ -12,12 +12,14 @@
 :root{
   --bg:#F1F0F7; --surface:#FFFFFF; --ink:#241B36; --muted:#6B6480; --line:#DEDAEA;
   --period:#B3205A; --period-soft:#F6D6E3; --fertile:#1F8A83; --fertile-soft:#D3EEEB;
+  --follicular:#7E6CBF; --luteal:#C27A1E;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){
   :root{
     --bg:#16111F; --surface:#211A30; --ink:#F0ECF8; --muted:#A59DBB; --line:#392F4F;
     --period:#EE5C92; --period-soft:#4A1F36; --fertile:#4CC2B8; --fertile-soft:#1D3E3F;
+    --follicular:#A898E0; --luteal:#F0B35A;
     color-scheme:dark;
   }
 }
@@ -71,6 +73,24 @@ ul.history li{display:flex;justify-content:space-between;align-items:center;gap:
 ul.history span small{display:block;color:var(--muted)}
 .link{background:none;border:0;color:var(--period);font-weight:600;min-height:44px;padding:0 4px}
 .tools{display:flex;flex-wrap:wrap;gap:10px}
+fieldset.flow{border:0;padding:0;margin:0;min-width:0}
+.flow legend{font-weight:600;font-size:.92rem;padding:0;margin-bottom:4px}
+.flow legend small{font-weight:400;color:var(--muted)}
+.flow-opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.flow-opts label{position:relative;display:block;font-weight:600}
+.flow-opts input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+.flow-opts span{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:56px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font-size:.85rem}
+.flow-opts b{font-weight:400;font-size:.8rem;line-height:1.2}
+.flow-opts input:checked+span{background:var(--period);border-color:var(--period);color:#fff}
+.flow-opts input:focus-visible+span{outline:3px solid var(--ink);outline-offset:2px}
+.day.log.f-light{background:color-mix(in srgb,var(--period) 50%,var(--surface));color:var(--ink)}
+.day.log.f-medium{background:color-mix(in srgb,var(--period) 78%,var(--surface))}
+ul.stages{list-style:none;margin:0;padding:0}
+ul.stages li{display:grid;grid-template-columns:14px 1fr;gap:4px 12px;padding:12px 0;border-top:1px solid var(--line)}
+ul.stages i{width:14px;height:14px;border-radius:50%;margin-top:6px}
+ul.stages strong{font-weight:800}
+ul.stages small{display:block;color:var(--muted);font-size:.85rem}
+ul.stages .here{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:99px;background:var(--ink);color:var(--bg);font-size:.72rem;font-weight:600}
 footer{margin-top:32px;font-size:.82rem;color:var(--muted)}
 @media (prefers-reduced-motion:no-preference){
   .ring-dot{transition:cx .4s,cy .4s}
@@ -106,6 +126,7 @@ footer{margin-top:32px;font-size:.82rem;color:var(--muted)}
       <li><i class="l-pred"></i>Predicted period</li>
       <li><i class="l-fert"></i>Fertile window</li>
     </ul>
+    <p class="note">Darker red days mean heavier flow.</p>
   </section>
 
   <section aria-labelledby="log-title">
@@ -117,9 +138,22 @@ footer{margin-top:32px;font-size:.82rem;color:var(--muted)}
       <label>Last day <small>Optional. Leave empty if it hasn’t ended. Save again later to add it.</small>
         <input type="date" id="end">
       </label>
+      <fieldset class="flow">
+        <legend>Flow <small>Optional</small></legend>
+        <div class="flow-opts">
+          <label><input type="radio" name="flow" value="light"><span><b aria-hidden="true">💧</b>Light</span></label>
+          <label><input type="radio" name="flow" value="medium"><span><b aria-hidden="true">💧💧</b>Medium</span></label>
+          <label><input type="radio" name="flow" value="heavy"><span><b aria-hidden="true">💧💧💧</b>Heavy</span></label>
+        </div>
+      </fieldset>
       <button class="btn" type="submit">Save period</button>
       <p id="msg" role="status" aria-live="polite"></p>
     </form>
+  </section>
+
+  <section aria-labelledby="stage-title">
+    <h2 id="stage-title">Cycle stages</h2>
+    <ul class="stages" id="stages"></ul>
   </section>
 
   <section aria-labelledby="hist-title">
@@ -180,6 +214,40 @@ function model() {
   };
 }
 
+function stagesOf(m) {
+  const N = m.cycle, pl = Math.min(m.plen, N);
+  const fs = Math.max(pl, N - 19), fl = Math.min(7, N - fs), lt = fs + fl;
+  return [
+    { k: 'period', name: 'Period', color: 'var(--period)', a: 0, len: pl },
+    { k: 'follicular', name: 'Follicular', color: 'var(--follicular)', a: pl, len: fs - pl },
+    { k: 'fertile', name: 'Fertile window', color: 'var(--fertile)', a: fs, len: fl },
+    { k: 'luteal', name: 'Luteal', color: 'var(--luteal)', a: lt, len: N - lt }
+  ];
+}
+
+function renderStages(m) {
+  const el = $('stages');
+  if (!m.last) {
+    el.innerHTML = '<li style="grid-template-columns:1fr;color:var(--muted)">Log a period to see your stages.</li>';
+    return;
+  }
+  const N = m.cycle, st = stagesOf(m), i0 = diff(m.last, today);
+  const cur = i0 >= N ? st[3] : st.find(s => i0 >= s.a && i0 < s.a + s.len);
+  const desc = {
+    period: 'The days you bleed.',
+    follicular: 'After your period, before the fertile window.',
+    fertile: 'Pregnancy is most likely. Ovulation is estimated on ' + fmt(add(m.last, N - 14)) + '.',
+    luteal: 'After ovulation, until your next period.'
+  };
+  el.innerHTML = st.filter(s => s.len > 0).map(s => {
+    const from = add(m.last, s.a), to = add(m.last, s.a + s.len - 1);
+    const range = s.len === 1 ? fmt(from) : fmt(from) + ' to ' + fmt(to);
+    return '<li><i style="background:' + s.color + '"></i><div><strong>' + s.name + '</strong>' +
+      (cur === s ? '<span class="here">Now</span>' : '') +
+      '<small>' + range + '. ' + desc[s.k] + '</small></div></li>';
+  }).join('');
+}
+
 function renderRing(m) {
   const R = 88, C = 2 * Math.PI * R, N = m.cycle;
   const seg = (a, len, col, w) => {
@@ -193,9 +261,8 @@ function renderRing(m) {
   if (!m.last) {
     main = 'Log a period'; label = 'to see predictions';
   } else {
-    const fs = Math.max(m.plen, N - 19), fl = Math.min(7, N - fs);
-    svg += seg(fs, fl, 'var(--fertile)', 14);
-    svg += seg(0, m.plen, 'var(--period)', 14);
+    const st = stagesOf(m);
+    st.forEach(s => { if (s.len > 0) svg += seg(s.a, s.len, s.color, 14); });
     const idx = Math.min(Math.max(diff(m.last, today), 0), N - 1) + 0.5;
     const ang = idx / N * 2 * Math.PI - Math.PI / 2;
     svg += '<circle class="ring-dot" cx="' + (110 + R * Math.cos(ang)) + '" cy="' + (110 + R * Math.sin(ang)) +
@@ -208,6 +275,9 @@ function renderRing(m) {
     else if (dd > 0) { main = String(dd); label = dd === 1 ? 'day until period' : 'days until period'; }
     else if (dd === 0) { main = 'Today'; label = 'period expected'; }
     else { main = String(-dd); label = dd === -1 ? 'day late' : 'days late'; }
+    const i0 = diff(m.last, today);
+    const cur = i0 >= N ? st[3] : st.find(s => i0 >= s.a && i0 < s.a + s.len);
+    if (cur) lines.push('Stage <b>' + cur.name + '</b>');
     lines.push('Next period around <b>' + fmt(next) + '</b>');
     const ov = add(next, -14);
     lines.push('Fertile window <b>' + fmt(add(ov, -5)) + ' to ' + fmt(add(ov, 1)) + '</b>');
@@ -234,7 +304,7 @@ function status(day, m) {
   if (!m.last) return s;
   for (const x of m.p) {
     const st = D(x.start), en = x.end ? D(x.end) : add(st, m.plen - 1);
-    if (day >= st && day <= en) s.log = true;
+    if (day >= st && day <= en) { s.log = true; if (x.flow) s.flow = x.flow; }
   }
   for (let k = 1; k <= 4; k++) {
     const st = add(m.last, k * m.cycle);
@@ -259,7 +329,7 @@ function renderCal(m) {
     const s = status(day, m);
     const cls = ['day'];
     let tag = '';
-    if (s.log) { cls.push('log'); tag = ', logged period'; }
+    if (s.log) { cls.push('log'); if (s.flow) cls.push('f-' + s.flow); tag = ', logged period' + (s.flow ? ', ' + s.flow + ' flow' : ''); }
     else if (s.pred) { cls.push('pred'); tag = ', predicted period'; }
     else if (s.fert) { cls.push('fert'); tag = ', fertile window'; }
     if (diff(today, day) === 0) cls.push('today');
@@ -273,7 +343,9 @@ function renderHistory(m) {
   const items = [...m.p].reverse();
   if (!items.length) { $('history').innerHTML = '<li style="border:0;color:var(--muted)">No periods logged yet. Add your first one above.</li>'; return; }
   $('history').innerHTML = items.map(x => {
-    const len = x.end ? (diff(D(x.start), D(x.end)) + 1) + ' days' : 'Not ended yet';
+    const bits = [x.end ? (diff(D(x.start), D(x.end)) + 1) + ' days' : 'Not ended yet'];
+    if (x.flow) bits.push(x.flow + ' flow');
+    const len = bits.join(', ');
     const range = fmt(D(x.start), { month: 'short', day: 'numeric', year: 'numeric' }) + (x.end ? ' to ' + fmt(D(x.end)) : '');
     return '<li><span>' + range + '<small>' + len + '</small></span><button class="link" data-del="' + x.start + '">Remove</button></li>';
   }).join('');
@@ -281,7 +353,7 @@ function renderHistory(m) {
 
 function render() {
   const m = model();
-  renderRing(m); renderStats(m); renderCal(m); renderHistory(m);
+  renderRing(m); renderStats(m); renderStages(m); renderCal(m); renderHistory(m);
 }
 
 $('prev').onclick = () => { view = new Date(view.getFullYear(), view.getMonth() - 1, 1, 12); render(); };
@@ -302,7 +374,11 @@ $('form').addEventListener('submit', e => {
   if (end && end < start) { msg.textContent = 'The last day can’t be before the first day.'; return; }
   if (iso(D(start)) > iso(today)) { msg.textContent = 'The first day can’t be in the future.'; return; }
   data.periods = data.periods.filter(x => x.start !== start);
-  data.periods.push(end ? { start, end } : { start });
+  const fEl = document.querySelector('input[name=flow]:checked');
+  const entry = { start };
+  if (end) entry.end = end;
+  if (fEl) entry.flow = fEl.value;
+  data.periods.push(entry);
   save();
   msg.textContent = '';
   $('form').reset();
@@ -335,7 +411,12 @@ $('file').addEventListener('change', e => {
       const j = JSON.parse(r.result);
       const ok = j && Array.isArray(j.periods) && j.periods.every(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.start) && (!x.end || /^\d{4}-\d{2}-\d{2}$/.test(x.end)));
       if (!ok) throw new Error('bad');
-      data = { periods: j.periods.map(x => x.end ? { start: x.start, end: x.end } : { start: x.start }) };
+      data = { periods: j.periods.map(x => {
+        const o = { start: x.start };
+        if (x.end) o.end = x.end;
+        if (['light', 'medium', 'heavy'].includes(x.flow)) o.flow = x.flow;
+        return o;
+      }) };
       save(); render();
     } catch (err) { alert('That file isn’t a valid backup.'); }
   };
